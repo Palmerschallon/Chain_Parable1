@@ -1,216 +1,103 @@
 <!doctype html><meta charset="utf-8"/>
-<title>Chain Parable — SOP-256 (Five-Act Canvas, Mobile Fix)</title>
+<title>Chain Parable — Diagnostics</title>
 <style>
-  :root{--bg:#0b0c10;--fg:#d9dee7;--muted:#98a2b3}
+  :root{--bg:#0b0c10;--fg:#d9dee7}
   html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-monospace,monospace;height:100%}
-  #ui{position:fixed;left:0;right:0;top:0;padding:12px 16px;background:linear-gradient(var(--bg),rgba(11,12,16,0.35));backdrop-filter:blur(2px);display:grid;gap:8px;z-index:10}
+  #ui{position:fixed;left:0;right:0;top:0;padding:10px 12px;background:linear-gradient(var(--bg),rgba(11,12,16,0.35));z-index:10}
+  button{background:#1a1f29;color:var(--fg);border:1px solid #2a2f3a;border-radius:6px;padding:6px 10px;cursor:pointer}
   textarea{background:#0f1115;color:var(--fg);border:1px solid #2a2f3a;border-radius:6px;padding:8px;width:100%}
-  button,select{background:#1a1f29;color:var(--fg);border:1px solid #2a2f3a;border-radius:6px;padding:6px 10px;cursor:pointer}
-  button:hover{filter:brightness(1.15)}
-  #out{white-space:pre-wrap;margin:6px 0 0 0;color:var(--fg)}
-  #meta{color:var(--muted);font-size:12px}
   canvas{position:fixed;inset:0;display:block;width:100vw;height:100vh;z-index:0}
-  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .spacer{flex:1}
+  #log{white-space:pre-wrap;font-size:12px;opacity:.8;margin-top:6px}
 </style>
 <div id="ui">
-  <div class="row">
-    <strong>SOP-256 Five-Act Parable</strong>
-    <span id="meta"></span>
-    <span class="spacer"></span>
-    <label>Act</label>
-    <select id="actSel">
-      <option value="0">I</option>
-      <option value="1">II</option>
-      <option value="2">III</option>
-      <option value="3">IV</option>
-      <option value="4">V</option>
-    </select>
-    <button id="start">Start</button>
-    <button id="play" disabled>Play</button>
-    <button id="weave" disabled>Weave</button>
-  </div>
-  <textarea id="blk" rows="8">{
-  "height": 0,
-  "timestamp": 1231006505,
-  "bits": 486604799,
-  "nonce": 2083236893,
-  "hash": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
-  "merkle_root": "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b",
-  "tx_count": 1,
-  "total_fees": 0,
-  "weight": 0,
-  "coinbase_text": "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
-}</textarea>
-  <div id="out"></div>
+  <button id="start">Start</button>
+  <button id="self">Run Self-Test</button>
+  <button id="reset">Reset</button>
+  <span id="hud"></span>
+  <div id="log"></div>
 </div>
 <canvas id="cv"></canvas>
 <script>
-const toneTable=['quiet','liminal','tense','luminous','austere','ecstatic','elegiac','playful'];
-const arch=['Wanderer','Architect','Scribe','Miner','Trickster','Shepherd','Mirror'];
-const motifs=['river','ladder','orchard','mask','door','lantern','bridge','spiral','hive','bell','thread','mirror','garden','storm','well','map'];
-const verbs=['mint','fold','bridge','seed','mirror','weave','forge','tune'];
-const $ = sel => document.querySelector(sel);
-const cv = $('#cv'), g = cv.getContext('2d');
+const cv=document.getElementById('cv'), g=cv.getContext('2d');
+const logEl=document.getElementById('log'), hud=document.getElementById('hud');
+let rafId=null, started=false, t=0, dpr=1;
 
-function hexByte(h,i){ return parseInt(h.slice(i,i+2),16)%256 }
-function scene(t){ const s=t%86400; return s<21600?'dawn':s<43200?'noon':s<64800?'dusk':'midnight' }
-function bandW(w){ return ['feather','stone','iron','star'][Math.min(3,Math.floor((w||1)/1_000_000)%4)] }
-function tempo(tx){ return Math.round(40+140*(1-Math.exp(-(tx||1)/200))) } // 40..180
-function pressure(bits){ const b=(bits>>>16)&255; return b/255 } // visual proxy
-function pAdj(p){ return p<.2?'soft':p<.4?'angled':p<.6?'heavy':p<.8?'severe':'impossible' }
-function chorus(cb,a,k,tone){ return (cb&&cb.trim())? cb.trim().slice(0,64) : `Act ${a} under the ${k}, stay ${tone}.` }
+function log(msg){ logEl.textContent += msg + "\\n"; }
 
-function fingerprint(block, actIdx=0){
-  const {height:H,timestamp:T,bits:Bits,nonce:N,hash:BH,merkle_root:MR,tx_count:TX,weight:W,coinbase_text:CB} = block;
-  const A=(H%5)+1;
-  const toneSeed = toneTable[ hexByte(BH, Math.min((actIdx*2), BH.length-2) ) % toneTable.length ];
-  const motifSeed = motifs[ hexByte(MR, Math.max(0, MR.length-2 - (actIdx*2+1)) ) % motifs.length ];
-  const verb = verbs[ hexByte(BH, Math.min(10 + actIdx, BH.length-2) ) % verbs.length ];
-  const Σ=scene(T), π=pressure(Bits), Ω=bandW(W), ♩=tempo(TX);
-  const P=arch[N%7]; const C=chorus(CB,A,motifSeed,toneSeed);
-  return {A,Σ,τ:toneSeed,Ω,π,♩,P,K:motifSeed,C,verb,BH,MR};
+function fit(){
+  dpr = Math.max(1, Math.min(3, (window.devicePixelRatio||1)));
+  const w = Math.max(1, Math.floor(window.innerWidth));
+  const h = Math.max(1, Math.floor(window.innerHeight));
+  cv.style.width = w+'px'; cv.style.height = h+'px';
+  cv.width = Math.floor(w*dpr); cv.height = Math.floor(h*dpr);
+  g.setTransform(dpr,0,0,dpr,0,0);
+  log(`fit: css=${w}x${h} px • dpr=${dpr} • backing=${cv.width}x${cv.height}`);
+}
+window.addEventListener('resize', fit);
+
+function drawGrid(){
+  g.strokeStyle='rgba(255,255,255,0.07)'; g.lineWidth=1;
+  for(let x=0;x<window.innerWidth;x+=50){ g.beginPath(); g.moveTo(x,0); g.lineTo(x,window.innerHeight); g.stroke(); }
+  for(let y=0;y<window.innerHeight;y+=50){ g.beginPath(); g.moveTo(0,y); g.lineTo(window.innerWidth,y); g.stroke(); }
+  g.strokeStyle='rgba(255,255,255,0.25)'; g.strokeRect(0.5,0.5,window.innerWidth-1,window.innerHeight-1);
 }
 
-function stanza(fp){
-  return `At ${fp.Σ}, the air feels ${fp.τ} and the world is ${fp.Ω}. `+
-         `The ${fp.P} meets a ${pAdj(fp.π)} resistance. `+
-         `A ${fp.K} appears, not as symbol but as instrument. `+
-         `They choose to ${fp.verb} and continue.\\n${fp.C}`;
-}
-
-// Hi-DPI canvas scaling
-function fitCanvas(){
-  const dpr = Math.max(1, Math.min(3, (window.devicePixelRatio||1)));
-  const cssW = Math.max(1, Math.floor(window.innerWidth));
-  const cssH = Math.max(1, Math.floor(window.innerHeight));
-  cv.style.width = cssW + 'px';
-  cv.style.height = cssH + 'px';
-  cv.width = Math.floor(cssW * dpr);
-  cv.height = Math.floor(cssH * dpr);
-  g.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
-}
-
-let agents=[], tick=0, playing=false, lastFp=null, lastAct=0, heartbeat=0;
-function rnd(seed){ let x=seed|0; return ()=> (x=(x*1664525+1013904223)|0, (x>>>0)/2**32); }
-function seed32FromHash(h,off=0){
-  return (hexByte(h,off)<<24)|(hexByte(h,off+2)<<16)|(hexByte(h,off+4)<<8)|hexByte(h,off+6);
-}
-
-function initSwarm(fp){
-  lastFp=fp;
-  const seed = seed32FromHash(fp.BH, fp.verb.length%8);
-  const R=rnd(seed);
-  const count=260+Math.floor(fp.π*680);
-  agents = Array.from({length:count},()=> ({
-    x:R()*cv.width, y:R()*cv.height,
-    vx:(R()-.5)*(1+fp.π), vy:(R()-.5)*(1+fp.π)
-  }));
-  tick=0;
-}
-
-function motifTarget(fp,t){
-  const cx=cv.width/2, cy=cv.height/2;
-  switch(fp.K){
-    case 'mirror': {
-      const rBase = Math.min(cv.width,cv.height)*0.28;
-      return p => {
-        const a = ( (p.x*13+p.y*7+t*0.6)%360 )*Math.PI/180;
-        const r = rBase + Math.sin(t/90)*8;
-        return {x: cx + r*Math.cos(a), y: cy + r*Math.sin(a)};
-      };
-    }
-    case 'spiral': {
-      return p => {
-        const a = ( (p.x*0.01+p.y*0.01)+t/120 );
-        const r = (Math.min(cv.width,cv.height)*0.02) + (a%6.283)*30;
-        return {x: cx + r*Math.cos(a), y: cy + r*Math.sin(a)};
-      };
-    }
-    case 'bridge': {
-      const span = Math.min(cv.width, 900)*0.8;
-      const y0 = cy + Math.sin(t/200)*30;
-      return p => {
-        const u = ((p.x + p.y + t*fp.♩*0.01)%1);
-        const x = cx - span/2 + span*u;
-        const k = 0.002;
-        const y = y0 - k*(x-cx)*(x-cx);
-        return {x,y};
-      };
-    }
-    case 'ladder': {
-      const w = Math.min(cv.width,cv.height)*0.25;
-      return p => {
-        const u = ((p.x*0.003 + t*0.003)%1);
-        const x = cx + ( (Math.floor(u*8)%2? -w/2: w/2) );
-        const y = cy + (u-0.5)*cv.height*0.6;
-        return {x,y};
-      };
-    }
-    case 'door': {
-      const W = Math.min(cv.width,cv.height)*0.36, H = W*1.6;
-      return p => {
-        const px = cx + Math.sign(Math.cos((p.x+p.y+t)*0.01))*W/2;
-        const py = cy + Math.sign(Math.sin((p.x-p.y+t)*0.01))*H/2;
-        return {x:px, y:py};
-      };
-    }
-    default: {
-      return p => {
-        const a = ( (p.x*7+p.y*13+t*0.4)%360 )*Math.PI/180;
-        const r = 120 + 60*Math.sin(t/140);
-        return {x: cx + r*Math.cos(a), y: cy + r*Math.sin(a)};
-      };
-    }
+function testPattern(){
+  g.fillStyle='rgba(11,12,16,0.25)'; g.fillRect(0,0,window.innerWidth,window.innerHeight);
+  drawGrid();
+  const cx=window.innerWidth/2, cy=window.innerHeight/2;
+  // big pulsing text so you can see it on deploy
+  g.font='bold 48px ui-monospace,monospace';
+  g.fillStyle='rgba(217,222,231,0.95)';
+  const msg='RUNNING';
+  const tw=g.measureText(msg).width;
+  g.fillText(msg, cx - tw/2, cy - 10);
+  // animated ring
+  const r=60+40*Math.sin(t/20);
+  g.beginPath(); g.arc(cx, cy+30, r, 0, Math.PI*2);
+  g.strokeStyle='rgba(217,222,231,0.9)'; g.lineWidth=3; g.stroke();
+  // little motes
+  const count=200;
+  for(let i=0;i<count;i++){
+    const a=(i/count)*Math.PI*2 + t/40;
+    const rr = 120 + 80*Math.sin((t+i)/30);
+    const x=cx+rr*Math.cos(a), y=cy+rr*Math.sin(a);
+    g.fillRect(x,y,2,2);
   }
 }
 
-function loop(){
-  g.fillStyle='rgba(11,12,16,0.25)'; g.fillRect(0,0,cv.width,cv.height);
-  if(lastFp){
-    const target = motifTarget(lastFp,tick);
-    g.fillStyle='#d9dee7';
-    const k = 0.000045*(0.6+lastFp.π);
-    for(const s of agents){
-      const to = target(s);
-      s.vx += (to.x - s.x)*k;
-      s.vy += (to.y - s.y)*k;
-      s.x += s.vx; s.y += s.vy;
-      if(s.x<0||s.x>cv.width) s.vx*=-1;
-      if(s.y<0||s.y>cv.height) s.vy*=-1;
-      // draw a 1.5x1.5 "pixel" for visibility on mobile after DPR scaling
-      g.fillRect(s.x, s.y, 1.5, 1.5);
-    }
-    tick += lastFp.♩/60;
-    heartbeat++;
-    if(heartbeat%30===0){
-      $('#meta').textContent = `Agents ${agents.length} • BPM ${lastFp.♩} • Act ${parseInt($('#actSel').value,10)+1}`;
-    }
-  }
-  requestAnimationFrame(loop);
-}
-loop();
-
-/* ====== UI ====== */
-function weave(actIdx){
-  let block;
-  try{ block = JSON.parse($('#blk').value); }catch(e){ $('#out').textContent='Invalid JSON'; return; }
-  const fp = fingerprint(block, actIdx);
-  $('#out').textContent = stanza(fp);
-  initSwarm(fp);
-  $('#meta').textContent = `H=${block.height} • Scene=${fp.Σ} • Tone=${fp.τ} • Motif=${fp.K} • Archetype=${fp.P} • BPM=${fp.♩}`;
+let last=performance.now(), fps=0;
+function loop(now){
+  const dt = now-last; last=now; fps = 1000/dt;
+  testPattern();
+  hud.textContent = `FPS ${fps.toFixed(0)} • DPR ${dpr}`;
+  t++;
+  rafId = requestAnimationFrame(loop);
 }
 
-function enableControls(){
-  $('#play').disabled=false;
-  $('#weave').disabled=false;
-  weave(parseInt($('#actSel').value,10)||0);
+function start(){
+  if(started) return;
+  started=true;
+  fit();
+  log('start pressed');
+  rafId = requestAnimationFrame(loop);
 }
 
-$('#start').onclick = ()=>{
-  fitCanvas(); // ensure DPR scaling after user gesture (iOS friendly)
-  enableControls();
+function stop(){
+  cancelAnimationFrame(rafId);
+  started=false;
+  log('stopped');
+}
+
+document.getElementById('start').onclick = start;
+document.getElementById('self').onclick = ()=>{
+  if(!started) start(); else log('self-test already running');
+};
+document.getElementById('reset').onclick = ()=>{
+  stop(); fit(); g.clearRect(0,0,cv.width,cv.height); hud.textContent='';
 };
 
-addEventListener('resize', fitCanvas);
 </script>
+
+
+
