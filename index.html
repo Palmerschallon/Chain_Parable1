@@ -76,7 +76,7 @@ function stanza(fp){
   return `At ${fp.Σ}, the air feels ${fp.τ} and the world is ${fp.Ω}. `+
          `The ${fp.P} meets a ${pAdj(fp.π)} resistance. `+
          `A ${fp.K} appears, not as symbol but as instrument. `+
-         `They choose to ${fp.verb} and continue.\\n${fp.C}`;
+         `They choose to ${fp.verb} and continue.\n${fp.C}`;
 }
 
 // Hi-DPI canvas scaling
@@ -208,12 +208,21 @@ function enableControls(){
   weave(parseInt($('#actSel').value,10)||0);
 }
 
-$('#start').onclick = ()=>{
-  fitCanvas(); // ensure DPR scaling after user gesture (iOS friendly)
-  enableControls();
-};
-
-addEventListener('resize', fitCanvas);
-// auto-start on first user interaction
-['pointerdown','touchstart','keydown'].forEach(ev=>addEventListener(ev,()=>{ if($('#play').disabled){ fitCanvas(); enableControls(); } },{once:true}));
+window.addEventListener('DOMContentLoaded', () => {
+  // Attach the event handler after DOM is ready
+  $('#start').onclick = ()=>{
+    fitCanvas(); // ensure DPR scaling after user gesture (iOS friendly)
+    enableControls();
+  };
+  addEventListener('resize', fitCanvas);
+  // auto-start on first user interaction (for mobile, iOS etc)
+  ['pointerdown','touchstart','keydown'].forEach(ev=>
+    addEventListener(ev,()=>{
+      if($('#play').disabled){
+        fitCanvas();
+        enableControls();
+      }
+    },{once:true})
+  );
+});
 </script>
